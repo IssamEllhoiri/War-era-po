@@ -265,6 +265,40 @@
 
   .stat.wide { grid-column: 1 / -1; }
 
+  .companies-section {
+    padding: 16px 20px 4px;
+    border-top: 1px solid var(--line);
+  }
+
+  .companies-title {
+    font-family: 'Oswald', sans-serif;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--khaki-bright);
+    margin-bottom: 10px;
+  }
+
+  .companies-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .company-item { flex: 0 0 auto; }
+
+  .company-item {
+    background: #1b1f16;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 6px;
+    text-align: center;
+  }
+
+  .company-item .icon { font-size: 20px; }
+  .company-item .name { font-size: 10.5px; color: var(--text-dim); margin-top: 2px; word-break: break-word; }
+  .company-item .lvl { font-size: 11.5px; color: var(--khaki-bright); font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
+
   footer.linkline {
     padding: 14px 20px;
     text-align: center;
@@ -342,6 +376,10 @@
           <div class="stat"><div class="label">الدولة</div><div class="value" id="country"></div></div>
           <div class="stat"><div class="label">تاريخ إنشاء الحساب</div><div class="value" id="created"></div></div>
         </div>
+        <div class="companies-section" id="companiesSection" style="display:none;">
+          <div class="companies-title">🏭 الشركات</div>
+          <div class="companies-grid" id="companiesGrid"></div>
+        </div>
         <footer class="linkline">
           <a class="profile-link" id="profileLink" href="#" target="_blank" rel="noopener">فتح ملفه داخل WarEra ←</a>
         </footer>
@@ -364,6 +402,52 @@ const MU_URL = "https://api2.warera.io/trpc/mu.getById";
 const PARTY_URL = "https://api2.warera.io/trpc/party.getById";
 const COUNTRY_URL = "https://api2.warera.io/trpc/country.getCountryById";
 const PROFILE_LINK_BASE = "https://app.warera.io/user";
+const COMPANIES_URL = "https://api2.warera.io/trpc/company.getCompanies";
+const COMPANY_URL = "https://api2.warera.io/trpc/company.getById";
+
+// إيموجي عام يمثل "شركة" (يُستخدم كعنوان لقسم الشركات)
+const COMPANY_EMOJI = "<:emoji_28:1545931283266404473>";
+
+// نفس خريطة إيموجيات المنتجات من مشروع الأسعار
+const PRODUCT_EMOJIS = {
+  grain: "<:emoji_23:1545826318761984130>",
+  bread: "<:emoji_15:1545825992596262912>",
+  livestock: "<:emoji_16:1545826046371303555>",
+  steak: "<:emoji_11:1545825739490852915>",
+  fish: "<:emoji_17:1545826046371303555>",
+  cookedFish: "<:emoji_2:1545825528651456662>",
+  iron: "<:emoji_22:1545826283345154068>",
+  steel: "<:emoji_18:1545826120006373476>",
+  limestone: "<:emoji_24:1545826363099975711>",
+  concrete: "<:emoji_12:1545825822068183120>",
+  oil: "<:emoji_14:1545825967514325064>",
+  petroleum: "<:emoji_19:1545826161269936198>",
+  lead: "<:emoji_21:1545826247899087020>",
+  scraps: "<:emoji_25:1545852542796177440>",
+  ammo: "<:T_emoji_13:1545825408753074337>",
+  lightAmmo: "<:T_emoji_13:1545825600835690558>",
+  heavyAmmo: "<:T_emoji_10:1545825916633227314>",
+  coca: "<:emoji_20:1545826219293941770>",
+  cocain: "<:emoji_3:1545825467989233796>",
+  case1: "<:P_emoji_26:1545852574903836672>",
+  case2: "<:P_emoji_27:1545852624744747189>",
+};
+
+function productEmoji(itemCode) {
+  return PRODUCT_EMOJIS[itemCode] || "📦";
+}
+
+// نسخة برموز عادية لعرضها داخل الصفحة نفسها (إيموجي ديسكورد المخصص ما يترسم كصورة هنا)
+const PRODUCT_EMOJIS_PLAIN = {
+  grain: "🌾", bread: "🍞", livestock: "🐄", steak: "🥩", fish: "🐟",
+  cookedFish: "🍲", iron: "⛏️", steel: "🔩", limestone: "🪨", concrete: "🧱",
+  oil: "🛢️", petroleum: "💧", lead: "⚙️", scraps: "🔧", ammo: "🔫",
+  lightAmmo: "🔫", heavyAmmo: "💥", coca: "🍃", cocain: "💊", case1: "🎒", case2: "💼",
+};
+
+function productEmojiPlain(itemCode) {
+  return PRODUCT_EMOJIS_PLAIN[itemCode] || "📦";
+}
 // رابط الويب هوك ثابت داخل الكود ولا يظهر في الواجهة
 const WEBHOOK_URL = "https://discord.com/api/webhooks/1544051675994525726/D6jCOOBCe2ndzod8wWhXNbeCydQ06q4Q_U0UJzSXN0wkV4vxg1yQsABnwG1RtgRrrCzg";
 
@@ -387,6 +471,40 @@ async function safeName(url, key, id) {
   }
 }
 
+async function fetchCompanies(userId) {
+  try {
+    let allIds = [];
+    let cursor = undefined;
+    do {
+      const page = await postJson(COMPANIES_URL, {
+        userId,
+        perPage: 100,
+        ...(cursor ? { cursor } : {}),
+      });
+      const data = page?.result?.data;
+      allIds = allIds.concat(data?.items || []);
+      cursor = data?.nextCursor || null;
+    } while (cursor);
+
+    if (allIds.length === 0) return [];
+
+    const companies = await Promise.all(
+      allIds.map(async (companyId) => {
+        try {
+          const json = await postJson(COMPANY_URL, { companyId });
+          return json?.result?.data;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    return companies.filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 async function fetchFullUser(text) {
   const searchJson = await postJson(SEARCH_URL, { searchText: text });
   const ids = searchJson?.result?.data;
@@ -396,16 +514,23 @@ async function fetchFullUser(text) {
   const userJson = await postJson(USER_URL, { userId: ids[0] });
   const user = userJson?.result?.data;
 
-  const [muName, partyName, countryName] = await Promise.all([
+  const [muName, partyName, countryName, companies] = await Promise.all([
     safeName(MU_URL, 'muId', user.mu),
     safeName(PARTY_URL, 'partyId', user.party),
     safeName(COUNTRY_URL, 'countryId', user.country),
+    fetchCompanies(user._id),
   ]);
 
-  return { user, muName, partyName, countryName };
+  return { user, muName, partyName, countryName, companies };
 }
 
-function buildPayload({ user, muName, partyName, countryName }) {
+function buildPayload({ user, muName, partyName, countryName, companies }) {
+  const list = companies || [];
+  const companyLine = list.map((c) => {
+    const level = c.activeUpgradeLevels?.automatedEngine ?? 0;
+    return `${COMPANY_EMOJI} : ${productEmoji(c.itemCode)} ${level}`;
+  }).join('   ');
+
   return {
     embeds: [
       {
@@ -424,6 +549,7 @@ function buildPayload({ user, muName, partyName, countryName }) {
           { name: '🪖 الوحدة العسكرية', value: muName || '-', inline: true },
           { name: '🏛️ الحزب', value: partyName || '-', inline: true },
           { name: '🌍 الدولة', value: countryName || '-', inline: false },
+          ...(list.length > 0 ? [{ name: '\u200b', value: companyLine, inline: false }] : []),
         ],
         footer: { text: `WarEra Dossier • ID: ${user._id}` },
         timestamp: new Date().toISOString(),
@@ -496,7 +622,7 @@ form.addEventListener('submit', async (e) => {
 
   try {
     const result = await fetchFullUser(text);
-    const { user, muName, partyName, countryName } = result;
+    const { user, muName, partyName, countryName, companies } = result;
 
     document.getElementById('avatar').src = user.avatarUrl || '';
     document.getElementById('username').textContent = user.username;
@@ -514,6 +640,23 @@ form.addEventListener('submit', async (e) => {
       ? new Date(user.createdAt).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })
       : '-';
     document.getElementById('profileLink').href = `${PROFILE_LINK_BASE}/${user._id}`;
+
+    const companiesSection = document.getElementById('companiesSection');
+    const companiesGrid = document.getElementById('companiesGrid');
+    if (companies && companies.length > 0) {
+      companiesGrid.innerHTML = companies.map((c) => {
+        const level = c.activeUpgradeLevels?.automatedEngine ?? 0;
+        return `
+          <div class="company-item">
+            <div class="icon">🏭 : ${productEmojiPlain(c.itemCode)}</div>
+            <div class="lvl">${level}</div>
+          </div>
+        `;
+      }).join('');
+      companiesSection.style.display = 'block';
+    } else {
+      companiesSection.style.display = 'none';
+    }
 
     status2.textContent = '';
     card.style.display = 'block';
